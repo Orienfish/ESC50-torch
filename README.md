@@ -16,7 +16,7 @@ Then follow the corresponding notebook to download, setup and train on each data
 
 [ESC-10](./ESC10-Pytorch.ipynb)
 
-[BDLib](.BDLib-Pytorch.ipynb)
+[BDLib](./BDLib-Pytorch.ipynb)
 
 ## License
 
