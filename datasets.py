@@ -2,6 +2,7 @@ import librosa
 import numpy as np
 import pandas as pd
 import os
+import sys
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -64,7 +65,7 @@ class ESCDataset(Dataset):
                 if not os.path.exists(root):
                     os.mkdir(root)
                 cmd = 'wget -O {} {}'.format(
-                    os.path.join(root, 'HAR.zip'),
+                    os.path.join(root, 'master.zip'),
                     'https://github.com/karoldvl/ESC-50/archive/master.zip'
                 )
                 os.system(cmd)
@@ -74,7 +75,8 @@ class ESCDataset(Dataset):
                 ))
 
         # Read meta data
-        self.df = pd.read_csv(os.path.join(root, 'meta/esc50.csv'))
+        self.df = pd.read_csv(os.path.join(root, 
+                                           'ESC-50-master/meta/esc50.csv'))
         if train:  # Training data
             self.df = self.df[self.df['fold'] != val_fold]
         else:  # Validation data
@@ -96,9 +98,10 @@ class ESCDataset(Dataset):
             self.c2i[category] = i
             self.i2c[i] = category
 
+        folder_path = os.path.join(root, 'ESC-50-master/audio')
         for ind in tqdm(range(len(self.df))):
             row = self.df.iloc[ind]
-            file_path = os.path.join(root + '/audio', row[in_col])
+            file_path = os.path.join(folder_path, row[in_col])
             self.data.append(spec_to_image(get_melspectrogram_db(file_path))[np.newaxis, ...])
             self.labels.append(self.c2i[row['category']])
 
@@ -135,3 +138,19 @@ class BDLibData(Dataset):
 
     def __getitem__(self, idx):
         return self.data[idx], self.labels[idx]
+
+
+if __name__ == "__main__":
+    if sys.argv[1] == 'esc10':
+        train_data = ESCDataset(root='ESC50', 
+                                esc50=False, 
+                                val_fold=4,
+                                train=True,
+                                download=True)
+    elif sys.argv[1] == 'esc50':
+        train_data = ESCDataset(root='ESC50', 
+                                esc50=True, 
+                                val_fold=4,
+                                train=True,
+                                download=True)
+        
