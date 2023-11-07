@@ -113,14 +113,39 @@ class ESCDataset(Dataset):
 
 
 # BDLib
-class BDLibData(Dataset):
-    def __init__(self, root, fold_ids):
+class BDLibDataset(Dataset):
+    def __init__(self, root: str, 
+                 fold_ids: list,
+                 download: bool=True):
+        """
+        Dataset setup of BDLib
+        :param root: The root directory of the downloaded dataaset
+        :param fold_ids: list of integers, fold to use
+        :param download: True for downloading the dataset
+        """
         self.data = []
         self.labels = []
         self.all_labels = ['airplane', 'alarms', 'applause',
                            'birds', 'dogs', 'motorcycles',
                            'rain', 'rivers', 'seawaves', 'thunders']
         self.num_classes = 10
+
+        # Download the dataset
+        if download:
+            if os.path.isdir(root) and len(os.listdir(root)) > 0:
+                print('Download not needed, files already on disk.')
+            else:
+                if not os.path.exists(root):
+                    os.mkdir(root)
+                cmd = 'wget -O {} {}'.format(
+                    os.path.join(root, 'BDLib.zip'),
+                    'http://research.playcompass.com/files/BDLib-2.zip'
+                )
+                os.system(cmd)
+                os.system('unzip -o {} -d {}'.format(
+                    os.path.join(root, 'BDLib.zip'),
+                    root
+                ))
 
         # Read all samples
         for id in fold_ids:
@@ -153,4 +178,8 @@ if __name__ == "__main__":
                                 val_fold=4,
                                 train=True,
                                 download=True)
+    elif sys.argv[1] == 'bdlib':
+        train_data = BDLibDataset(root='BDLib', 
+                                  fold_ids=[1,2,3],
+                                  download=True)
         
