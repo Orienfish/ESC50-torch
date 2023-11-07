@@ -11,10 +11,15 @@ def spec_to_image(spec,
                   eps=1e-6):
     mean = spec.mean()
     std = spec.std()
+    # First standard normalize
     spec_norm = (spec - mean) / (std + eps)
     spec_min, spec_max = spec_norm.min(), spec_norm.max()
-    spec_scaled = 255 * (spec_norm - spec_min) / (spec_max - spec_min)
-    spec_scaled = spec_scaled.astype(np.uint8)
+    # Normalize to 0.0-1.0
+    spec_scaled = (spec_norm - spec_min) / (spec_max - spec_min + eps)
+
+    # Normalize to 0-255
+    # spec_scaled = 255 * (spec_norm - spec_min) / (spec_max - spec_min)
+    # spec_scaled = spec_scaled.astype(np.uint8)
     return spec_scaled
 
 
@@ -22,19 +27,33 @@ def get_melspectrogram_db(file_path,
                           sr=None,
                           n_fft=2048,
                           hop_length=512,
-                          n_mels=128,
+                          n_mels=64,
                           fmin=20,
                           fmax=8300,
-                          top_db=80):
+                          top_db=80,
+                          window_seconds=5.0):  # the duration of one smaple in seconds
     wav, sr = librosa.load(file_path, sr=sr)
+    sample_num = int(sr * window_seconds)
+    spec_db = []
+
+    # Pad the signal to 5 seconds, as in the original code
     if wav.shape[0] < 5*sr:
         wav = np.pad(wav, int(np.ceil((5*sr-wav.shape[0])/2)), mode='reflect')
     else:
         wav = wav[:5*sr]
-    spec = librosa.feature.melspectrogram(y=wav, sr=sr, n_fft=n_fft,
-                                          hop_length=hop_length, n_mels=n_mels,
-                                          fmin=fmin, fmax=fmax)
-    spec_db = librosa.power_to_db(spec, top_db=top_db)
+    
+    # Obtain the sample of every "window" with the defined length
+    ind = 0
+    while ind + sample_num <= wav.shape[0]:
+        cur_wav = wav[ind:ind+sample_num]
+        spec = librosa.feature.melspectrogram(y=cur_wav, sr=sr, n_fft=n_fft,
+                                              hop_length=hop_length, n_mels=n_mels,
+                                              fmin=fmin, fmax=fmax)
+        cur_spec_db = spec_to_image(librosa.power_to_db(spec, top_db=top_db))[np.newaxis,...]
+        spec_db.append(cur_spec_db)
+
+        ind += sample_num
+    # print(len(spec_db))
     return spec_db
 
 
@@ -45,7 +64,8 @@ class ESCDataset(Dataset):
                  esc50: bool=True,
                  val_fold: int=4,
                  train: bool=True,
-                 download: bool=True):
+                 download: bool=True,
+                 window_seconds: float=5.0):
         """
         Dataset setup of ESC-50 and ESC-10
         :param root: The root directory of the downloaded dataaset
@@ -53,6 +73,8 @@ class ESCDataset(Dataset):
         :param val_fold: fold id for validation
         :param train: True for training, False for validation
         :param download: True for downloading the dataset
+        :param window_seconds: The duration per sample in seconds, critical for sample size
+            and for accuracy
         """
         self.data = []
         self.labels = []
@@ -102,8 +124,11 @@ class ESCDataset(Dataset):
         for ind in tqdm(range(len(self.df))):
             row = self.df.iloc[ind]
             file_path = os.path.join(folder_path, row[in_col])
-            self.data.append(spec_to_image(get_melspectrogram_db(file_path))[np.newaxis, ...])
-            self.labels.append(self.c2i[row['category']])
+            new_data = get_melspectrogram_db(file_path,
+                                             window_seconds=window_seconds)
+            new_label = [self.c2i[row['category']]] * len(new_data)
+            self.data.extend(new_data)
+            self.labels.extend(new_label)
 
     def __len__(self):
         return len(self.data)
@@ -116,12 +141,14 @@ class ESCDataset(Dataset):
 class BDLibDataset(Dataset):
     def __init__(self, root: str, 
                  fold_ids: list,
-                 download: bool=True):
+                 download: bool=True,
+                 window_seconds: float=5.0):
         """
         Dataset setup of BDLib
         :param root: The root directory of the downloaded dataaset
         :param fold_ids: list of integers, fold to use
         :param download: True for downloading the dataset
+                Dataset setup of BDLib
         """
         self.data = []
         self.labels = []
@@ -153,10 +180,14 @@ class BDLibDataset(Dataset):
             all_files = os.listdir(dir_path)
             for ind in range(len(all_files)):
                 file_path = os.path.join(dir_path, all_files[ind])
-                self.data.append(spec_to_image(get_melspectrogram_db(file_path))[np.newaxis,...])
+                new_data = get_melspectrogram_db(file_path,
+                                                 window_seconds=window_seconds)
                 label = all_files[ind].split('.')[0].rstrip('0123456789')
-                # print(label)
-                self.labels.append(self.all_labels.index(label))
+                new_label = [self.all_labels.index(label)] * len(new_data)
+                #print(len(new_data))
+                #print(new_label)
+                self.data.extend(new_data)
+                self.labels.extend(new_label)
 
     def __len__(self):
         return len(self.data)
@@ -171,15 +202,19 @@ if __name__ == "__main__":
                                 esc50=False, 
                                 val_fold=4,
                                 train=True,
-                                download=True)
+                                download=True,
+                                window_seconds=5.0)
     elif sys.argv[1] == 'esc50':
         train_data = ESCDataset(root='ESC50', 
                                 esc50=True, 
                                 val_fold=4,
                                 train=True,
-                                download=True)
+                                download=True,
+                                window_seconds=5.0)
     elif sys.argv[1] == 'bdlib':
         train_data = BDLibDataset(root='BDLib', 
                                   fold_ids=[1,2,3],
                                   download=True)
+    print(train_data.data[0].shape)
+    print(train_data.labels[0])
         
