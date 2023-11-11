@@ -164,3 +164,4 @@ ESC50/*
 BDLib/*
 
 *.DS_Store
+*tb_result*

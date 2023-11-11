@@ -27,7 +27,7 @@ def parse_option():
                         help='batch_size')
     parser.add_argument('--val_batch_size', type=int, default=16,
                         help='batch_size in validation')
-    parser.add_argument('--epochs', type=int, default=20,
+    parser.add_argument('--epochs', type=int, default=10,
                         help='number of training epochs or number of passes on dataset')
     parser.add_argument('--trial', type=int, default=0,
                         help='id for recording multiple runs')
