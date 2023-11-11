@@ -31,9 +31,10 @@ def get_melspectrogram_db(file_path,
                           fmin=20,
                           fmax=8300,
                           top_db=80,
-                          window_seconds=5.0):  # the duration of one smaple in seconds
+                          win_secs=5.0, # the duration of one smaple in seconds
+                          overlap=0.75): # the overlapping of samples  
     wav, sr = librosa.load(file_path, sr=sr)
-    sample_num = int(sr * window_seconds)
+    sample_num = int(sr * win_secs)
     spec_db = []
 
     # Pad the signal to 5 seconds, as in the original code
@@ -52,7 +53,7 @@ def get_melspectrogram_db(file_path,
         cur_spec_db = spec_to_image(librosa.power_to_db(spec, top_db=top_db))[np.newaxis,...]
         spec_db.append(cur_spec_db)
 
-        ind += sample_num
+        ind += int(sample_num * (1-overlap))
     # print(len(spec_db))
     return spec_db
 
@@ -65,7 +66,8 @@ class ESCDataset(Dataset):
                  val_fold: int=4,
                  train: bool=True,
                  download: bool=True,
-                 window_seconds: float=5.0,
+                 win_secs: float=5.0,
+                 overlap: float=0.75,
                  n_mels: int=64):
         """
         Dataset setup of ESC-50 and ESC-10
@@ -74,8 +76,9 @@ class ESCDataset(Dataset):
         :param val_fold: fold id for validation
         :param train: True for training, False for validation
         :param download: True for downloading the dataset
-        :param window_seconds: The duration per sample in seconds, critical for sample size
+        :param win_secs: The duration per sample in seconds, critical for sample size
             and for accuracy
+        :param overlap: The overlap of subsequent samples
         :param n_mels: The number of frequency bin s in Mel Spectrogram
         """
         self.data = []
@@ -128,7 +131,8 @@ class ESCDataset(Dataset):
             file_path = os.path.join(folder_path, row[in_col])
             new_data = get_melspectrogram_db(file_path,
                                              n_mels=n_mels,
-                                             window_seconds=window_seconds)
+                                             win_secs=win_secs,
+                                             overlap=overlap)
             new_label = [self.c2i[row['category']]] * len(new_data)
             self.data.extend(new_data)
             self.labels.extend(new_label)
@@ -145,14 +149,17 @@ class BDLibDataset(Dataset):
     def __init__(self, root: str, 
                  fold_ids: list,
                  download: bool=True,
-                 window_seconds: float=5.0,
+                 win_secs: float=5.0,
+                 overlap: float=0.75,
                  n_mels: int=64):
         """
         Dataset setup of BDLib
         :param root: The root directory of the downloaded dataaset
         :param fold_ids: list of integers, fold to use
         :param download: True for downloading the dataset
-                Dataset setup of BDLib
+        :param win_secs: The duration per sample in seconds, critical for sample size
+            and for accuracy
+        :param overlap: The overlap of subsequent samples
         :param n_mels: The number of frequency bin s in Mel Spectrogram
         """
         self.data = []
@@ -187,7 +194,8 @@ class BDLibDataset(Dataset):
                 file_path = os.path.join(dir_path, all_files[ind])
                 new_data = get_melspectrogram_db(file_path,
                                                  n_mels=n_mels,
-                                                 window_seconds=window_seconds)
+                                                 win_secs=win_secs,
+                                                 overlap=overlap)
                 label = all_files[ind].split('.')[0].rstrip('0123456789')
                 new_label = [self.all_labels.index(label)] * len(new_data)
                 #print(len(new_data))
@@ -209,14 +217,14 @@ if __name__ == "__main__":
                                 val_fold=4,
                                 train=True,
                                 download=True,
-                                window_seconds=5.0)
+                                win_secs=5.0)
     elif sys.argv[1] == 'esc50':
         train_data = ESCDataset(root='ESC50', 
                                 esc50=True, 
                                 val_fold=4,
                                 train=True,
                                 download=True,
-                                window_seconds=5.0)
+                                win_secs=5.0)
     elif sys.argv[1] == 'bdlib':
         train_data = BDLibDataset(root='BDLib', 
                                   fold_ids=[1,2,3],
