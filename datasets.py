@@ -27,7 +27,7 @@ def get_melspectrogram_db(file_path,
                           sr=None,
                           n_fft=2048,
                           hop_length=512,
-                          n_mels=64,
+                          n_mels=32,
                           fmin=20,
                           fmax=8300,
                           top_db=80,
@@ -65,7 +65,8 @@ class ESCDataset(Dataset):
                  val_fold: int=4,
                  train: bool=True,
                  download: bool=True,
-                 window_seconds: float=5.0):
+                 window_seconds: float=5.0,
+                 n_mels: int=64):
         """
         Dataset setup of ESC-50 and ESC-10
         :param root: The root directory of the downloaded dataaset
@@ -75,6 +76,7 @@ class ESCDataset(Dataset):
         :param download: True for downloading the dataset
         :param window_seconds: The duration per sample in seconds, critical for sample size
             and for accuracy
+        :param n_mels: The number of frequency bin s in Mel Spectrogram
         """
         self.data = []
         self.labels = []
@@ -125,6 +127,7 @@ class ESCDataset(Dataset):
             row = self.df.iloc[ind]
             file_path = os.path.join(folder_path, row[in_col])
             new_data = get_melspectrogram_db(file_path,
+                                             n_mels=n_mels,
                                              window_seconds=window_seconds)
             new_label = [self.c2i[row['category']]] * len(new_data)
             self.data.extend(new_data)
@@ -142,13 +145,15 @@ class BDLibDataset(Dataset):
     def __init__(self, root: str, 
                  fold_ids: list,
                  download: bool=True,
-                 window_seconds: float=5.0):
+                 window_seconds: float=5.0,
+                 n_mels: int=64):
         """
         Dataset setup of BDLib
         :param root: The root directory of the downloaded dataaset
         :param fold_ids: list of integers, fold to use
         :param download: True for downloading the dataset
                 Dataset setup of BDLib
+        :param n_mels: The number of frequency bin s in Mel Spectrogram
         """
         self.data = []
         self.labels = []
@@ -181,6 +186,7 @@ class BDLibDataset(Dataset):
             for ind in range(len(all_files)):
                 file_path = os.path.join(dir_path, all_files[ind])
                 new_data = get_melspectrogram_db(file_path,
+                                                 n_mels=n_mels,
                                                  window_seconds=window_seconds)
                 label = all_files[ind].split('.')[0].rstrip('0123456789')
                 new_label = [self.all_labels.index(label)] * len(new_data)
