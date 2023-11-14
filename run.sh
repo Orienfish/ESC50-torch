@@ -1,13 +1,13 @@
 
 for dim in 1000
 do
-    for levels in 10
+    for levels in 5 10
     do
         for flipping in 0.005 0.01
         do
-            for win_secs in 1.0 2.0 3.0 5.0
+            for win_secs in 1.0
             do
-                for overlap in 0.0
+                for overlap in 0.5
                 do
                     for n_mels in 128
                     do
