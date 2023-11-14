@@ -18,6 +18,7 @@ import tensorboard_logger as tb_logger
 
 # Import self-implemented torch dataset
 from datasets import BDLibDataset, ESCDataset
+from torchaudio.datasets import SPEECHCOMMANDS
 
 def parse_option():
     parser = argparse.ArgumentParser('argument for training')
@@ -45,7 +46,7 @@ def parse_option():
     
     # Dataset configuration
     parser.add_argument('--dataset', type=str, default='esc10',
-                        choices=['esc10', 'esc50', 'bdlib'],
+                        choices=['esc10', 'esc50', 'bdlib', 'speechcommands'],
                         help='dataset')
     parser.add_argument('--win_secs', type=float, default=5.0,
                         help='window size for wav data')
@@ -273,13 +274,23 @@ def main():
                                  win_secs=opt.win_secs,
                                  overlap=opt.overlap,
                                  n_mels=opt.n_mels)
+    elif opt.dataset == 'speechcommands':
+        train_data = SPEECHCOMMANDS(root='SpeechCommands',
+                                    download=True,
+                                    subset='training')
+        valid_data = SPEECHCOMMANDS(root='SpeechCommands',
+                                    download=False,
+                                    subset='testing')
 
     train_loader = DataLoader(train_data, batch_size=opt.batch_size, shuffle=True)
     valid_loader = DataLoader(valid_data, batch_size=opt.val_batch_size, shuffle=True)
 
     print('train data length', len(train_data))
     print('valid data length', len(valid_data))
-    print('Sample shape', train_data.data[0].shape)
+    if opt.dataset != 'speechcommands':  # Non speechcommands
+        print('Sample shape', train_data.data[0].shape)
+    else:  # Speechcommands
+        print(train_data.__getitem__(0)[0].shape)  # (1,16000)
 
     # accuracy metric
     accuracy = torchmetrics.Accuracy("multiclass", num_classes=train_data.num_classes)

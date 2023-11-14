@@ -162,6 +162,7 @@ cython_debug/
 *.zip
 ESC50/*
 BDLib/*
+SpeechCommands/*
 
 *.DS_Store
 *tb_result*
