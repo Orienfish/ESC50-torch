@@ -188,7 +188,8 @@ def hd_train(train_loader, model, encode, epoch, device):
 
                     
 # HDC testing
-def hd_test(valid_loader, model, encode, accuracy, device):
+def hd_test(valid_loader, model, encode, device):
+    true_labels, pred_labels = [], []
     with torch.no_grad():
         model.normalize()
     
@@ -201,11 +202,20 @@ def hd_test(valid_loader, model, encode, accuracy, device):
             
             samples_hv = encode(samples)
             outputs = model(samples_hv, dot=True)
-            accuracy.update(outputs.cpu(), labels)
-
-    acc = accuracy.compute().item() * 100
-    print(f"Testing accuracy of {(acc):.3f}%")
-    return acc
+            
+            true_labels.extend(labels.tolist())
+            pred_labels.extend(torch.argmax(outputs, dim=1).tolist())
+            
+    true_labels = np.array(true_labels)
+    pred_labels = np.array(pred_labels)
+    acc = (true_labels == pred_labels).sum() / true_labels.size
+    acc_pc = []
+    for c in np.unique(true_labels):
+        mask = (true_labels == c)
+        acc_pc.append((true_labels[mask] == pred_labels[mask]).sum() / mask.sum())
+    print(f"Testing accuracy of {acc}%")
+    print("Testing accuracy per class: ", acc_pc)
+    return acc, acc_pc
 
 
 def main():
@@ -303,7 +313,7 @@ def main():
 
     for epoch in range(opt.epochs):
         hd_train(train_loader, model, encode, epoch, device)
-        acc = hd_test(valid_loader, copy.deepcopy(model), encode, accuracy, device)
+        acc, _ = hd_test(valid_loader, copy.deepcopy(model), encode, accuracy, device)
         logger.log_value('accuracy', acc, epoch)
 
 

@@ -5,7 +5,7 @@ import os
 import sys
 from torch.utils.data import Dataset
 from tqdm import tqdm
-
+import matplotlib.pyplot as plt
 
 def spec_to_image(spec,
                   eps=1e-6):
@@ -22,8 +22,9 @@ def spec_to_image(spec,
     # spec_scaled = spec_scaled.astype(np.uint8)
     return spec_scaled
 
-
+fig_cnt = {}
 def get_melspectrogram_db(file_path,
+                          label,
                           sr=None,
                           n_fft=2048,
                           hop_length=512,
@@ -32,7 +33,12 @@ def get_melspectrogram_db(file_path,
                           fmax=8300,
                           top_db=80,
                           win_secs=5.0, # the duration of one smaple in seconds
-                          overlap=0.75): # the overlapping of samples  
+                          overlap=0.75, # the overlapping of samples
+                          plot=False):   
+    # For recording plot numbers
+    if label not in fig_cnt:
+        fig_cnt[label] = 0
+
     wav, sr = librosa.load(file_path, sr=sr)
     sample_num = int(sr * win_secs)
     spec_db = []
@@ -52,6 +58,14 @@ def get_melspectrogram_db(file_path,
                                               fmin=fmin, fmax=fmax)
         cur_spec_db = spec_to_image(librosa.power_to_db(spec, top_db=top_db))[np.newaxis,...]
         spec_db.append(cur_spec_db)
+
+        if plot:
+            plt.figure()
+            librosa.display.waveshow(cur_wav, sr=sr)
+            plt.title(label)
+            plt.savefig('temp_plots/{}{}.png'.format(label, fig_cnt[label]))
+            plt.close()
+            fig_cnt[label] += 1
 
         ind += int(sample_num * (1-overlap))
     # print(len(spec_db))
@@ -130,6 +144,7 @@ class ESCDataset(Dataset):
             row = self.df.iloc[ind]
             file_path = os.path.join(folder_path, row[in_col])
             new_data = get_melspectrogram_db(file_path,
+                                             self.c2i[row['category']],
                                              n_mels=n_mels,
                                              win_secs=win_secs,
                                              overlap=overlap)
@@ -192,11 +207,12 @@ class BDLibDataset(Dataset):
             all_files = os.listdir(dir_path)
             for ind in range(len(all_files)):
                 file_path = os.path.join(dir_path, all_files[ind])
+                label = all_files[ind].split('.')[0].rstrip('0123456789')
                 new_data = get_melspectrogram_db(file_path,
+                                                 label,
                                                  n_mels=n_mels,
                                                  win_secs=win_secs,
                                                  overlap=overlap)
-                label = all_files[ind].split('.')[0].rstrip('0123456789')
                 new_label = [self.all_labels.index(label)] * len(new_data)
                 #print(len(new_data))
                 #print(new_label)
@@ -217,18 +233,21 @@ if __name__ == "__main__":
                                 val_fold=4,
                                 train=True,
                                 download=True,
-                                win_secs=5.0)
+                                win_secs=5.0,
+                                plot=True)
     elif sys.argv[1] == 'esc50':
         train_data = ESCDataset(root='ESC50', 
                                 esc50=True, 
                                 val_fold=4,
                                 train=True,
                                 download=True,
-                                win_secs=5.0)
+                                win_secs=5.0,
+                                plot=True)
     elif sys.argv[1] == 'bdlib':
         train_data = BDLibDataset(root='BDLib', 
                                   fold_ids=[1,2,3],
-                                  download=True)
+                                  download=True,
+                                  plot=True)
     print(train_data.data[0].shape)
     print(train_data.labels[0])
         
