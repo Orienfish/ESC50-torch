@@ -153,7 +153,8 @@ class Encoder(nn.Module):
         """
         super(Encoder, self).__init__()
         self.device = device
-        self.timeseries_Encoder = timeseries_Encoder(input_dim, levels, hd_dim, flipping)
+        self.wav_enc = timeseries_Encoder()
+        self.spec_enc = timeseries_Encoder(input_dim, levels, hd_dim, flipping)
 
     def forward(self, x):
         x = x.squeeze()

@@ -7,8 +7,7 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-def spec_to_image(spec,
-                  eps=1e-6):
+def spec_to_image(spec, eps=1e-6):
     mean = spec.mean()
     std = spec.std()
     # First standard normalize
@@ -22,6 +21,11 @@ def spec_to_image(spec,
     # spec_scaled = spec_scaled.astype(np.uint8)
     return spec_scaled
 
+def scale_wav(wav, eps=1e-6):
+    wav_min = wav.min()
+    wav_max = wav.max()
+    return (wav - wav_min) / (wav_max - wav_min + eps)
+
 fig_cnt = {}
 def get_melspectrogram_db(file_path,
                           label,
@@ -30,8 +34,8 @@ def get_melspectrogram_db(file_path,
                           hop_length=512,
                           n_mels=32,
                           fmin=20,
-                          fmax=8300,
-                          top_db=80,
+                          fmax=8000,
+                          top_db=50,
                           win_secs=5.0, # the duration of one smaple in seconds
                           overlap=0.75, # the overlapping of samples
                           plot=False):   
@@ -41,7 +45,7 @@ def get_melspectrogram_db(file_path,
 
     wav, sr = librosa.load(file_path, sr=sr)
     sample_num = int(sr * win_secs)
-    spec_db = []
+    conv_wav, spec_db = [], []
 
     # Pad the signal to 5 seconds, as in the original code
     if wav.shape[0] < 5*sr:
@@ -59,17 +63,31 @@ def get_melspectrogram_db(file_path,
         cur_spec_db = spec_to_image(librosa.power_to_db(spec, top_db=top_db))[np.newaxis,...]
         spec_db.append(cur_spec_db)
 
-        if plot:
+        # Scale the wav signals, first to db power, and scale to 0-1, then resample
+        cur_wav = scale_wav(librosa.power_to_db(cur_wav, top_db=top_db))
+        cur_wav = librosa.resample(cur_wav, orig_sr=sr, target_sr=1000)
+        conv_wav.append(cur_wav)
+
+        if plot and fig_cnt[label] < 6:
             plt.figure()
+            print(cur_wav.shape, sr)
             librosa.display.waveshow(cur_wav, sr=sr)
             plt.title(label)
-            plt.savefig('temp_plots/{}{}.png'.format(label, fig_cnt[label]))
+            plt.savefig('wav_plots/{}{}.png'.format(label, fig_cnt[label]))
             plt.close()
+
+            plt.figure()
+            print(cur_spec_db.squeeze().shape)
+            librosa.display.specshow(cur_spec_db.squeeze(), cmap='viridis')
+            plt.title(label)
+            plt.savefig('spec_plots/{}{}.png'.format(label, fig_cnt[label]))
+            plt.close()
+
             fig_cnt[label] += 1
 
         ind += int(sample_num * (1-overlap))
     # print(len(spec_db))
-    return spec_db
+    return (conv_wav, spec_db)
 
 
 # ESC-50 and ESC-10
@@ -82,7 +100,8 @@ class ESCDataset(Dataset):
                  download: bool=True,
                  win_secs: float=5.0,
                  overlap: float=0.75,
-                 n_mels: int=64):
+                 n_mels: int=64,
+                 plot: bool=False):
         """
         Dataset setup of ESC-50 and ESC-10
         :param root: The root directory of the downloaded dataaset
@@ -94,6 +113,7 @@ class ESCDataset(Dataset):
             and for accuracy
         :param overlap: The overlap of subsequent samples
         :param n_mels: The number of frequency bin s in Mel Spectrogram
+        :param plot: Whether to plot wav and spec during loading
         """
         self.data = []
         self.labels = []
@@ -147,7 +167,8 @@ class ESCDataset(Dataset):
                                              self.c2i[row['category']],
                                              n_mels=n_mels,
                                              win_secs=win_secs,
-                                             overlap=overlap)
+                                             overlap=overlap,
+                                             plot=plot)
             new_label = [self.c2i[row['category']]] * len(new_data)
             self.data.extend(new_data)
             self.labels.extend(new_label)
@@ -166,7 +187,8 @@ class BDLibDataset(Dataset):
                  download: bool=True,
                  win_secs: float=5.0,
                  overlap: float=0.75,
-                 n_mels: int=64):
+                 n_mels: int=64,
+                 plot: bool=False):
         """
         Dataset setup of BDLib
         :param root: The root directory of the downloaded dataaset
@@ -176,6 +198,7 @@ class BDLibDataset(Dataset):
             and for accuracy
         :param overlap: The overlap of subsequent samples
         :param n_mels: The number of frequency bin s in Mel Spectrogram
+        :param plot: Whether to plot wav and spec during loading
         """
         self.data = []
         self.labels = []
@@ -212,7 +235,8 @@ class BDLibDataset(Dataset):
                                                  label,
                                                  n_mels=n_mels,
                                                  win_secs=win_secs,
-                                                 overlap=overlap)
+                                                 overlap=overlap,
+                                                 plot=plot)
                 new_label = [self.all_labels.index(label)] * len(new_data)
                 #print(len(new_data))
                 #print(new_label)
@@ -233,7 +257,9 @@ if __name__ == "__main__":
                                 val_fold=4,
                                 train=True,
                                 download=True,
-                                win_secs=5.0,
+                                win_secs=1.0,
+                                overlap=0.5,
+                                n_mels=32,
                                 plot=True)
     elif sys.argv[1] == 'esc50':
         train_data = ESCDataset(root='ESC50', 
@@ -241,13 +267,18 @@ if __name__ == "__main__":
                                 val_fold=4,
                                 train=True,
                                 download=True,
-                                win_secs=5.0,
+                                win_secs=1.0,
+                                overlap=0.5,
+                                n_mels=32,
                                 plot=True)
     elif sys.argv[1] == 'bdlib':
         train_data = BDLibDataset(root='BDLib', 
                                   fold_ids=[1,2,3],
                                   download=True,
+                                  win_secs=1.0,
+                                  overlap=0.5,
+                                  n_mels=32,
                                   plot=True)
-    print(train_data.data[0].shape)
+    print(train_data.data[0][0].shape)
     print(train_data.labels[0])
         
