@@ -13,7 +13,6 @@ import copy
 import random
 import torchhd
 from torchhd.models import Centroid
-import torchmetrics
 import tensorboard_logger as tb_logger
 
 # Import self-implemented torch dataset
@@ -39,20 +38,24 @@ def parse_option():
                         help='the type of hd encoding function to use')
     parser.add_argument('--dim', type=int, default=1000,
                         help='the size of HD space dimension')
-    parser.add_argument('--levels', type=int, default=100,
+    parser.add_argument('--spec_levels', type=int, default=10,
                         help='the number of quantized level used on raw data')
-    parser.add_argument('--flipping', type=float, default=0.01,
+    parser.add_argument('--spec_flipping', type=float, default=0.005,
                         help='the flipping rate in the time series encoder')
-    
+    parser.add_argument('--wav_levels', type=int, default=10,
+                        help='the number of quantized level used on raw data')
+    parser.add_argument('--wav_flipping', type=float, default=0.005,
+                        help='the flipping rate in the time series encoder')
+
     # Dataset configuration
     parser.add_argument('--dataset', type=str, default='esc10',
                         choices=['esc10', 'esc50', 'bdlib', 'speechcommands'],
                         help='dataset')
-    parser.add_argument('--win_secs', type=float, default=5.0,
+    parser.add_argument('--win_secs', type=float, default=1.0,
                         help='window size for wav data')
-    parser.add_argument('--overlap', type=float, default=0.75,
+    parser.add_argument('--overlap', type=float, default=0.5,
                         help='the ratio of overlap in generating sliding window')
-    parser.add_argument('--n_mels', type=int, default=64,
+    parser.add_argument('--n_mels', type=int, default=32,
                         help='the number of frequency bins in mel spectrogram')
     
 
@@ -63,9 +66,10 @@ def parse_option():
     if not os.path.isdir(opt.tb_path):
         os.makedirs(opt.tb_path)
 
-    opt.model_name = '{}_{}_{}_{}_hd{}_{}_{}_{}_bsz{}_{}_epoch{}_trial{}'.format(
+    opt.model_name = '{}_{}_{}_{}_hd{}_{}_{}_{}_{}_{}_bsz{}_{}_epoch{}_trial{}'.format(
         opt.dataset, opt.win_secs, opt.overlap, opt.n_mels,
-        opt.dim, opt.hd_encoder, opt.levels, opt.flipping, 
+        opt.dim, opt.hd_encoder, opt.wav_levels, opt.wav_flipping, 
+        opt.spec_levels, opt.spec_flipping,
         opt.batch_size, opt.val_batch_size, opt.epochs, opt.trial)
 
     opt.tb_folder = os.path.join(opt.tb_path, opt.model_name)
@@ -129,7 +133,7 @@ class timeseries_Encoder():
         a[a==0] = -1
         return a
 
-    def encode_one_time_series_sample(self, one_sample):
+    def encode(self, one_sample):
         one_sample = one_sample.cpu().numpy()
         T = len(one_sample)
         out = self.quantize(one_sample)
@@ -138,48 +142,54 @@ class timeseries_Encoder():
         out = self.sequential_bind(out)
         out = self.bipolarize(out)
         out = np.sum(out,axis=0)
-        return torch.from_numpy(out).float()
+        out = torch.from_numpy(out).float()
+        return torchhd.hard_quantize(out)
 
 
 # HDC encoder
 class Encoder(nn.Module):
-    def __init__(self, input_dim, levels, hd_dim, flipping, device):
+    def __init__(self, input_dim, hd_dim, 
+                 wav_levels, wav_flipping, 
+                 spec_levels, spec_flipping,
+                 device):
         """
         :param input_dim: dimension of the number of sensors
-        :param levels: number of quantized levels
         :param hd_dim: HDC dimension
+        :param levels: number of quantized levels
         :param flipping: flipping ratio to generate the next level hypervector
         :param device: cuda or cpu within torch
         """
         super(Encoder, self).__init__()
         self.device = device
-        self.wav_enc = timeseries_Encoder()
-        self.spec_enc = timeseries_Encoder(input_dim, levels, hd_dim, flipping)
+        self.wav_enc = timeseries_Encoder(1, wav_levels, hd_dim, wav_flipping)
+        self.spec_enc = timeseries_Encoder(input_dim, spec_levels, hd_dim, spec_flipping)
 
-    def forward(self, x):
-        x = x.squeeze()
+    def forward(self, wav_x, spec_x):
+        print(wav_x.shape, spec_x.shape)
         enc = []
-        batch_size = x.shape[0]
+        batch_size = wav_x.shape[0]
         for i in range(batch_size):
-            enc.append(
-                self.timeseries_Encoder.encode_one_time_series_sample(x[i]).to(self.device))
+            wav_enc = self.wav_enc.encode(wav_x[i]).to(self.device)
+            spec_enc = self.spec_enc.encode(spec_x[i]).to(self.device)
+            enc.append(spec_enc) # Bundle time and frequency
         sample_hv = torch.stack(enc, dim=0)
-        return torchhd.hard_quantize(sample_hv)
+        return sample_hv
     
 
 # HDC training
 def hd_train(train_loader, model, encode, epoch, device):
     with torch.no_grad():
         for samples, labels in tqdm(train_loader, desc="Training"):
-            samples = samples.to(device)
             labels = labels.to(device)
     
             # After the following steps, the input data shape should be (batch_size, num_of_time_steps, num_of_sensors)
-            samples = samples.squeeze()  # First get rid of the dimension with length=1
-            samples = samples.swapaxes(1,2)  # Temp fix for BDLib, need to switch the time and frequency axis
-            # print('input sample shape', samples.shape)
+            wav_samples, spec_samples = samples
+            wav_samples = wav_samples.unsqueeze(2) # Make it (bsz, 1000, 1)
+            spec_samples = spec_samples.squeeze()  # First get rid of the dimension with length=1
+            spec_samples = spec_samples.swapaxes(1,2)  # Temp fix for BDLib, need to switch the time and frequency axis
+            print('input sample shape', wav_samples.shape, spec_samples.shape)
             
-            samples_hv = encode(samples)
+            samples_hv = encode(wav_samples, spec_samples).to(device)
             model.add(samples_hv, labels)
             if epoch > 0: # Retraining
                 predict = torch.argmax(model(samples_hv, dot=True), dim=-1)
@@ -195,13 +205,15 @@ def hd_test(valid_loader, model, encode, device):
         model.normalize()
     
         for samples, labels in tqdm(valid_loader, desc="Testing"):
-            samples = samples.to(device)
+            # labels = labels.to(device)
     
             # After the following steps, the input data shape should be (batch_size, num_of_time_steps, num_of_sensors)
-            samples = samples.squeeze()  # First get rid of the dimension with length=1
-            samples = samples.swapaxes(1,2)  # Temp fix for BDLib, need to switch the time and frequency axis
+            wav_samples, spec_samples = samples
+            wav_samples = wav_samples.unsqueeze(2) # Make it (bsz, 1, 1000)
+            spec_samples = spec_samples.squeeze()  # First get rid of the dimension with length=1
+            spec_samples = spec_samples.swapaxes(1,2)  # Temp fix for BDLib, need to switch the time and frequency axis
             
-            samples_hv = encode(samples)
+            samples_hv = encode(wav_samples, spec_samples).to(device)
             outputs = model(samples_hv, dot=True)
             
             true_labels.extend(labels.tolist())
@@ -299,14 +311,17 @@ def main():
     print('train data length', len(train_data))
     print('valid data length', len(valid_data))
     if opt.dataset != 'speechcommands':  # Non speechcommands
-        print('Sample shape', train_data.data[0].shape)
+        print('Sample shape', 
+              train_data.data[0][0].shape,  # wav sample shape (1000,)
+              train_data.data[0][1].shape)  # spec sample shape (1, 64, 87)
     else:  # Speechcommands
-        print(train_data.__getitem__(0)[0].shape)  # (1,16000)
+        print(train_data.__getitem__(0)[0][0].shape,
+              train_data.__getitem__(0)[1][0].shape)  # (1,16000)
 
-    # accuracy metric
-    accuracy = torchmetrics.Accuracy("multiclass", num_classes=train_data.num_classes)
-
-    encode = Encoder(opt.n_mels, opt.levels, opt.dim, opt.flipping, device)
+    encode = Encoder(opt.n_mels, opt.dim, 
+                     opt.wav_levels, opt.wav_flipping, 
+                     opt.spec_levels, opt.spec_flipping,
+                     device)
     encode = encode.to(device)
 
     model = Centroid(opt.dim, train_data.num_classes)
@@ -314,7 +329,7 @@ def main():
 
     for epoch in range(opt.epochs):
         hd_train(train_loader, model, encode, epoch, device)
-        acc, _ = hd_test(valid_loader, copy.deepcopy(model), encode, accuracy, device)
+        acc, _ = hd_test(valid_loader, copy.deepcopy(model), encode, device)
         logger.log_value('accuracy', acc, epoch)
 
 

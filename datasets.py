@@ -45,7 +45,7 @@ def get_melspectrogram_db(file_path,
 
     wav, sr = librosa.load(file_path, sr=sr)
     sample_num = int(sr * win_secs)
-    conv_wav, spec_db = [], []
+    data = []
 
     # Pad the signal to 5 seconds, as in the original code
     if wav.shape[0] < 5*sr:
@@ -61,17 +61,17 @@ def get_melspectrogram_db(file_path,
                                               hop_length=hop_length, n_mels=n_mels,
                                               fmin=fmin, fmax=fmax)
         cur_spec_db = spec_to_image(librosa.power_to_db(spec, top_db=top_db))[np.newaxis,...]
-        spec_db.append(cur_spec_db)
 
         # Scale the wav signals, first to db power, and scale to 0-1, then resample
+        target_sr = 100
+        cur_wav = librosa.resample(cur_wav, orig_sr=sr, target_sr=target_sr) # , res_type='linear'
         cur_wav = scale_wav(librosa.power_to_db(cur_wav, top_db=top_db))
-        cur_wav = librosa.resample(cur_wav, orig_sr=sr, target_sr=1000)
-        conv_wav.append(cur_wav)
+        data.append([cur_wav, cur_spec_db])
 
         if plot and fig_cnt[label] < 6:
             plt.figure()
             print(cur_wav.shape, sr)
-            librosa.display.waveshow(cur_wav, sr=sr)
+            librosa.display.waveshow(cur_wav, sr=target_sr)
             plt.title(label)
             plt.savefig('wav_plots/{}{}.png'.format(label, fig_cnt[label]))
             plt.close()
@@ -87,7 +87,7 @@ def get_melspectrogram_db(file_path,
 
         ind += int(sample_num * (1-overlap))
     # print(len(spec_db))
-    return (conv_wav, spec_db)
+    return data
 
 
 # ESC-50 and ESC-10
@@ -238,8 +238,6 @@ class BDLibDataset(Dataset):
                                                  overlap=overlap,
                                                  plot=plot)
                 new_label = [self.all_labels.index(label)] * len(new_data)
-                #print(len(new_data))
-                #print(new_label)
                 self.data.extend(new_data)
                 self.labels.extend(new_label)
 
